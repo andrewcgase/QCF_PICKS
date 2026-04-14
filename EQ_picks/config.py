@@ -59,7 +59,10 @@ PICKS_REPICKED   = CATALOGS_DIR / "picks_repicked.csv"
 EVENTS_ASSOC     = CATALOGS_DIR / "events_associated.csv"
 PICKS_ASSOC      = CATALOGS_DIR / "picks_associated.csv"
 
-# Step 3: Pyrocko marker files
+# Step 1 waveform packages
+WAVEFORMS_DIR    = BASE / "waveforms"
+
+# Step 2: Pyrocko marker files
 MARKERS_FOR_QC   = MARKERS_DIR  / "events_to_review.markers"
 MARKERS_REVIEWED = MARKERS_DIR  / "events_reviewed.markers"   # saved by Snuffler after QC
 

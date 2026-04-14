@@ -1,32 +1,30 @@
 # QCF Earthquake Pick Revision Pipeline
 
-Re-pick and QC first-arrival phases for the QCF passive-source earthquake catalog,
-then export the reviewed catalog for seismic tomography.
+QC first-arrival phases for the QCF passive-source earthquake catalog, then
+export the reviewed catalog for seismic tomography.
 
 ---
 
 ## Overview
 
-The pipeline takes an existing detection catalog (from an initial SeisBench + GaMMA
-run) and produces a carefully QC'd catalog suitable for double-difference tomography
-(HypoDD / TomoDD).
+The pipeline takes an existing detection catalog (SeisBench + GaMMA picks) and
+produces a carefully QC'd catalog suitable for double-difference tomography
+(HypoDD / TomoDD).  Manual review is done in Snuffler with the existing
+PhaseNet/PickBlue picks pre-loaded as markers.
 
 ```
-[detection catalog]
+[detection catalog + SeisBench picks]
         │
         ▼
-01_repick.py        Re-pick P/S on event windows using PhaseNet + PickBlue
+01_extract_windows.py   Package per-event waveforms as miniSEED for sharing
         │
         ▼
-02_associate.py     Re-associate picks → events using GaMMA (BGMM + eikonal)
+02_picks_to_markers.py  Convert SeisBench picks → Pyrocko markers file
+        │
+    [Snuffler]          Review waveforms, delete bad picks, adjust times
         │
         ▼
-03_snuffler_prep.py Convert to Pyrocko markers for manual QC in Snuffler
-        │
-    [Snuffler]      Review waveforms, delete bad picks, adjust times
-        │
-        ▼
-04_export.py        Export reviewed catalog to CSV / QuakeML / HypoDD / TomoDD
+03_export.py            Export reviewed catalog to CSV / QuakeML / HypoDD / TomoDD
 ```
 
 ---
@@ -58,58 +56,49 @@ OBS_META_CSV  = Path("/your/path/to/EarthScope_OBS_Deployments.csv")
 
 ## Running the pipeline
 
-### Step 1 — Re-pick
+### Step 1 — Extract waveform windows
 
 ```bash
 conda activate qcf_eq
-python 01_repick.py                    # process all events
-python 01_repick.py --max-events 50   # test run on first 50 events
+python 01_extract_windows.py                    # all events (≥5 picks)
+python 01_extract_windows.py --min-picks 8      # stricter quality filter
+python 01_extract_windows.py --channels Z       # vertical only (smaller)
+python 01_extract_windows.py --max-events 50    # test run
+python 01_extract_windows.py --dry-run          # estimate size, no writing
 ```
 
-Reads `INPUT_EVENTS`, extracts waveform windows around each event from all nearby
-stations, and runs PhaseNet + PickBlue.  Output: `catalogs/picks_repicked.csv`.
+Reads `INPUT_EVENTS` and `INPUT_PICKS`, extracts a waveform window around each
+event's origin time from every station that contributed picks, and saves one
+Steim2-compressed miniSEED file per event: `waveforms/ev{event_index}.mseed`.
+
+**Estimated output sizes:**
+| Filter | Approx. compressed size |
+|---|---|
+| All 10,471 events, 3 channels, 120 s | ~1–2 GB |
+| `--min-picks 8` (~5,000 events) | ~500 MB |
+| `--min-picks 8 --channels Z` | ~150 MB |
 
 **Key parameters in `config.py`:**
 | Parameter | Default | Description |
 |---|---|---|
-| `SEISBENCH_WEIGHTS` | `"PickBlue"` | SeisBench model weights |
-| `PICK_THRESHOLD_P` | `0.3` | Minimum P probability |
-| `PICK_THRESHOLD_S` | `0.3` | Minimum S probability |
 | `WINDOW_BEFORE_S` | `30` | Seconds before origin time |
 | `WINDOW_AFTER_S` | `90` | Seconds after origin time |
-| `MAX_STATION_DIST_KM` | `400` | Distance cutoff for station inclusion |
 
-### Step 2 — Re-associate
+### Step 2 — Build Snuffler markers
 
 ```bash
-python 02_associate.py
+python 02_picks_to_markers.py                   # all filtered events
+python 02_picks_to_markers.py --only-extracted  # only events with mseed files
+python 02_picks_to_markers.py --min-picks 8
 ```
 
-Runs GaMMA (BGMM method, eikonal 1-D velocity model) on the new picks.
-Output: `catalogs/events_associated.csv`, `catalogs/picks_associated.csv`.
+Converts `gamma_events.csv` + `gamma_picks_refined.csv` to a Pyrocko
+`.markers` file at `markers/events_to_review.markers`.
 
-**Key parameters in `config.py`:**
-| Parameter | Default | Description |
-|---|---|---|
-| `GAMMA_CONFIG["min_picks_per_eq"]` | `5` | Minimum picks for association |
-| `GAMMA_CONFIG["max_sigma11"]` | `3.0` | Max origin-time uncertainty (s) |
-| `EIKONAL_VEL` | `vp=[5.5,5.5,6.7,7.8]` | 1-D P velocity model (km/s) |
-
-### Step 3 — Snuffler QC
+Then open Snuffler:
 
 ```bash
-python 03_snuffler_prep.py
-```
-
-Creates `markers/events_to_review.markers`.  The script prints the Snuffler
-launch command for your data.  Typical usage:
-
-```bash
-snuffler \
-  /path/to/DATA/corrected_clock_final/QCBxx/HHZ/*.msd \
-  /path/to/DATA/raw_data/QCBxx/Data/*/*/*.msd \
-  /path/to/DATA/onshore/NET/STA/Data/*/*/*.msd \
-  --markers=markers/events_to_review.markers
+snuffler waveforms/*.mseed --markers=markers/events_to_review.markers
 ```
 
 **In Snuffler:**
@@ -121,12 +110,12 @@ snuffler \
 
 Save reviewed markers to `markers/events_reviewed.markers`.
 
-### Step 4 — Export
+### Step 3 — Export
 
 ```bash
-python 04_export.py
+python 03_export.py
 # or specify a different markers file:
-python 04_export.py --markers markers/my_revised.markers
+python 03_export.py --markers markers/my_revised.markers
 ```
 
 Exports the QC'd catalog to four formats:

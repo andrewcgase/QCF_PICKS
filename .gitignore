@@ -1,6 +1,8 @@
 # WA_picks — pick data not public yet
 WA_picks/tables/*.tbl
+WA_picks/tables/*.csv
 WA_picks/tables/processed/
+WA_picks/tables/Interpolate/csv/
 WA_picks/onshore_tables/
 WA_picks/allshots_formatted.csv
 WA_picks/picks/
