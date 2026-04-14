@@ -1,11 +1,13 @@
-# Pick data — not public yet
-tables/*.tbl
-tables/processed/
-onshore_tables/
-allshots_formatted.csv
+# WA_picks — pick data not public yet
+WA_picks/tables/*.tbl
+WA_picks/tables/processed/
+WA_picks/onshore_tables/
+WA_picks/allshots_formatted.csv
+WA_picks/picks/
 
-# Josh's original processed data (large, 260 MB)
-picks/
+# EQ_picks — catalog outputs (data, not code)
+EQ_picks/catalogs/
+EQ_picks/markers/
 
 # Python
 __pycache__/

@@ -1,0 +1,17 @@
+name: qcf_eq
+channels:
+  - conda-forge
+  - pyrocko
+  - defaults
+dependencies:
+  - python=3.10
+  - numpy
+  - pandas
+  - tqdm
+  - pyproj
+  - obspy
+  - pyrocko
+  - pip
+  - pip:
+      - seisbench
+      - gamma-associator
