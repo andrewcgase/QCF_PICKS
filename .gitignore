@@ -1,0 +1,17 @@
+# Pick data — not public yet
+tables/*.tbl
+tables/processed/
+onshore_tables/
+allshots_formatted.csv
+
+# Josh's original processed data (large, 260 MB)
+picks/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
