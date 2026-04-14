@@ -84,23 +84,42 @@ def find_daily_files(data_root, network, station, year, jday,
 def build_station_index():
     """
     Return dict: station_code → {network, data_root, corrected}
+
+    OBS stations are discovered by scanning the data directories on disk
+    (raw_data/ and corrected_clock_final/) rather than relying on the
+    metadata CSV, whose station-name column may differ from directory names.
     """
     index = {}
 
-    obs_meta = pd.read_csv(config.OBS_META_CSV)
-    for _, row in obs_meta.iterrows():
-        sta = row["Station"]
-        if sta in config.SKIP_STATIONS:
-            continue
-        corrected = sta in config.CLOCK_CORRECTED_STATIONS
-        data_root = (config.OBS_CORRECTED / sta
-                     if corrected else config.OBS_RAW / sta / "Data")
-        index[sta] = {
-            "network":   config.OBS_NETWORK,
-            "data_root": data_root,
-            "corrected": corrected,
-        }
+    # OBS: clock-corrected stations (QCB06, QCB28)
+    if config.OBS_CORRECTED.exists():
+        for sta_dir in sorted(config.OBS_CORRECTED.iterdir()):
+            sta = sta_dir.name
+            if not sta_dir.is_dir() or sta in config.SKIP_STATIONS:
+                continue
+            index[sta] = {
+                "network":   config.OBS_NETWORK,
+                "data_root": sta_dir,
+                "corrected": True,
+            }
 
+    # OBS: raw stations (everything else under raw_data/)
+    if config.OBS_RAW.exists():
+        for sta_dir in sorted(config.OBS_RAW.iterdir()):
+            sta = sta_dir.name
+            if not sta_dir.is_dir() or sta in config.SKIP_STATIONS:
+                continue
+            if sta in config.CLOCK_CORRECTED_STATIONS:
+                continue   # already added from corrected_clock_final
+            data_root = sta_dir / "Data"
+            if data_root.exists():
+                index[sta] = {
+                    "network":   config.OBS_NETWORK,
+                    "data_root": data_root,
+                    "corrected": False,
+                }
+
+    # Onshore stations from StationXML inventory
     if config.ONSHORE_XML.exists():
         from obspy import read_inventory
         inv = read_inventory(str(config.ONSHORE_XML))
@@ -113,6 +132,9 @@ def build_station_index():
                         "data_root": sta_dir,
                         "corrected": False,
                     }
+
+    print(f"Station index: {len(index)} stations "
+          f"({', '.join(sorted(index)[:8])}{'...' if len(index) > 8 else ''})")
     return index
 
 
@@ -191,6 +213,8 @@ def process_day(args_tuple):
             if not win:
                 skipped += 1
                 continue
+            for tr in win:
+                tr.data = tr.data.astype(np.int32)
             out_path = Path(out_dir) / f"ev{ev_idx}.mseed"
             win.write(str(out_path), format="MSEED", encoding="STEIM2")
             written += 1
