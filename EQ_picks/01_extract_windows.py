@@ -24,12 +24,14 @@ Usage
   python 01_extract_windows.py --channels Z             # vertical only
   python 01_extract_windows.py --max-events 50          # test run
   python 01_extract_windows.py --dry-run                # estimate size, no writing
+  python 01_extract_windows.py --workers 8              # parallel workers (default: 4)
 """
 
 import argparse
 import glob
 import sys
 from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 import numpy as np
@@ -115,98 +117,34 @@ def build_station_index():
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Per-day worker (runs in a subprocess)
 # ---------------------------------------------------------------------------
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--min-picks", type=int, default=5,
-                        help="Skip events with fewer than N picks (default: 5).")
-    parser.add_argument("--min-score", type=float, default=0.0,
-                        help="Skip events with gamma_score below this value (default: 0).")
-    parser.add_argument("--channels", default="all",
-                        choices=["all", "Z"],
-                        help="'all' → HHZ/HH1/HH2/BH*; 'Z' → vertical only (default: all).")
-    parser.add_argument("--max-events", type=int, default=None,
-                        help="Process only the first N qualifying events (testing).")
-    parser.add_argument("--before", type=float, default=config.WINDOW_BEFORE_S,
-                        help=f"Seconds before origin time (default: {config.WINDOW_BEFORE_S}).")
-    parser.add_argument("--after", type=float, default=config.WINDOW_AFTER_S,
-                        help=f"Seconds after origin time (default: {config.WINDOW_AFTER_S}).")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Estimate output size and exit without writing files.")
-    args = parser.parse_args()
+def process_day(args_tuple):
+    """
+    Process all events that fall on a single calendar day.
+    Returns (written, skipped) counts.
+    """
+    (day_events,        # list of dicts (one per event)
+     event_stations,    # dict: ev_idx → set of station codes
+     station_index,     # dict: sta_code → {network, data_root, corrected}
+     channels,          # list of channel codes
+     before_s,          # float
+     after_s,           # float
+     out_dir,           # Path
+     ) = args_tuple
 
-    config.WAVEFORMS_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Channels to search for
-    if args.channels == "Z":
-        channels = ["HHZ", "BHZ"]
-    else:
-        channels = ["HHZ", "HH1", "HH2", "HDH", "EDH",
-                    "BHZ", "BHN", "BHE", "BH1", "BH2"]
-
-    # Load catalog and picks
-    events_df = pd.read_csv(config.INPUT_EVENTS)
-    picks_df  = pd.read_csv(config.INPUT_PICKS)
-
-    # Filter events
-    if "num_picks" in events_df.columns:
-        events_df = events_df[events_df["num_picks"] >= args.min_picks]
-    if "gamma_score" in events_df.columns and args.min_score > 0:
-        events_df = events_df[events_df["gamma_score"] >= args.min_score]
-    if args.max_events:
-        events_df = events_df.head(args.max_events)
-
-    print(f"Events to extract: {len(events_df)}"
-          f"  (min_picks≥{args.min_picks}, min_score≥{args.min_score})")
-
-    # Build station_id → station_code mapping
-    # gamma station_id format: "YI.QCB01." → station code = "QCB01"
-    def sta_code(station_id):
-        parts = str(station_id).rstrip(".").split(".")
-        return parts[1] if len(parts) > 1 else parts[0]
-
-    # event_index → set of station codes with picks
-    event_stations = defaultdict(set)
-    for _, row in picks_df[picks_df["event_index"] >= 0].iterrows():
-        event_stations[int(row["event_index"])].add(sta_code(row["station_id"]))
-
-    station_index = build_station_index()
-
-    # Dry run: estimate size
-    win_len = args.before + args.after
-    total_traces = sum(
-        len(event_stations[int(ev["event_index"])])
-        for _, ev in events_df.iterrows()
-    )
-    n_chan = 1 if args.channels == "Z" else 3
-    est_bytes = total_traces * n_chan * win_len * 100 * 4  # 100 sps, float32
-    est_compressed = est_bytes * 0.25  # Steim2 ~4x compression on seismic data
-    print(f"Estimated output: {est_bytes/1e9:.2f} GB uncompressed, "
-          f"~{est_compressed/1e9:.2f} GB compressed (Steim2)")
-    if args.dry_run:
-        return
-
-    # Group events by calendar day for efficient I/O
-    events_df["_dt"] = pd.to_datetime(events_df["time"])
-    events_df["_year"] = events_df["_dt"].dt.year
-    events_df["_jday"] = events_df["_dt"].dt.day_of_year
-
-    # Cache of loaded daily streams: (station, year, jday) → Stream
     stream_cache = {}
-    written, skipped = 0, 0
+    written = skipped = 0
 
-    for _, ev in tqdm(events_df.iterrows(), total=len(events_df), desc="Events"):
-        ev_idx  = int(ev["event_index"])
-        ot      = UTCDateTime(ev["time"])
-        t0      = ot - args.before
-        t1      = ot + args.after
-        year    = int(ev["_year"])
-        jday    = int(ev["_jday"])
+    for ev in day_events:
+        ev_idx = int(ev["event_index"])
+        ot     = UTCDateTime(ev["time"])
+        t0     = ot - before_s
+        t1     = ot + after_s
+        year   = int(ev["_year"])
+        jday   = int(ev["_jday"])
 
-        # Days the window spans (windows near midnight may cross day boundaries)
         days_needed = {(year, jday)}
         if t0.julday != jday or t0.year != year:
             days_needed.add((t0.year, t0.julday))
@@ -215,17 +153,17 @@ def main():
 
         event_stream = obspy.Stream()
 
-        for sta_code_str in event_stations.get(ev_idx, set()):
-            if sta_code_str not in station_index:
+        for sta in event_stations.get(ev_idx, set()):
+            if sta not in station_index:
                 continue
-            info = station_index[sta_code_str]
+            info = station_index[sta]
 
             for (yr, jd) in days_needed:
-                cache_key = (sta_code_str, yr, jd)
+                cache_key = (sta, yr, jd)
                 if cache_key not in stream_cache:
                     files = find_daily_files(
                         info["data_root"], info["network"],
-                        sta_code_str, yr, jd,
+                        sta, yr, jd,
                         corrected=info["corrected"],
                         channels=channels,
                     )
@@ -247,28 +185,128 @@ def main():
             skipped += 1
             continue
 
-        # Slice window and write
         try:
-            win = event_stream.slice(starttime=t0, endtime=t1)
-            win = win.copy()
+            win = event_stream.slice(starttime=t0, endtime=t1).copy()
             win.detrend("demean")
             if not win:
                 skipped += 1
                 continue
-
-            out_path = config.WAVEFORMS_DIR / f"ev{ev_idx}.mseed"
+            out_path = Path(out_dir) / f"ev{ev_idx}.mseed"
             win.write(str(out_path), format="MSEED", encoding="STEIM2")
             written += 1
-        except Exception as exc:
+        except Exception:
             skipped += 1
 
-        # Limit cache size to avoid memory issues (~100 station-days)
-        if len(stream_cache) > 100:
-            stream_cache.clear()
+    return written, skipped
 
-    print(f"\nDone: {written} events written to {config.WAVEFORMS_DIR}, "
-          f"{skipped} skipped (no waveform data)")
-    print(f"Launch Snuffler after running 02_picks_to_markers.py:")
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--min-picks", type=int, default=5,
+                        help="Skip events with fewer than N picks (default: 5).")
+    parser.add_argument("--min-score", type=float, default=0.0,
+                        help="Skip events with gamma_score below this value (default: 0).")
+    parser.add_argument("--channels", default="all",
+                        choices=["all", "Z"],
+                        help="'all' → HHZ/HH1/HH2/BH*; 'Z' → vertical only (default: all).")
+    parser.add_argument("--max-events", type=int, default=None,
+                        help="Process only the first N qualifying events (testing).")
+    parser.add_argument("--before", type=float, default=config.WINDOW_BEFORE_S,
+                        help=f"Seconds before origin time (default: {config.WINDOW_BEFORE_S}).")
+    parser.add_argument("--after", type=float, default=config.WINDOW_AFTER_S,
+                        help=f"Seconds after origin time (default: {config.WINDOW_AFTER_S}).")
+    parser.add_argument("--workers", type=int, default=4,
+                        help="Number of parallel worker processes (default: 4).")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Estimate output size and exit without writing files.")
+    args = parser.parse_args()
+
+    config.WAVEFORMS_DIR.mkdir(parents=True, exist_ok=True)
+
+    if args.channels == "Z":
+        channels = ["HHZ", "BHZ"]
+    else:
+        channels = ["HHZ", "HH1", "HH2", "HDH", "EDH",
+                    "BHZ", "BHN", "BHE", "BH1", "BH2"]
+
+    # Load catalog and picks
+    events_df = pd.read_csv(config.INPUT_EVENTS)
+    picks_df  = pd.read_csv(config.INPUT_PICKS)
+
+    # Filter events
+    if "num_picks" in events_df.columns:
+        events_df = events_df[events_df["num_picks"] >= args.min_picks]
+    if "gamma_score" in events_df.columns and args.min_score > 0:
+        events_df = events_df[events_df["gamma_score"] >= args.min_score]
+    if args.max_events:
+        events_df = events_df.head(args.max_events)
+
+    print(f"Events to extract: {len(events_df)}"
+          f"  (min_picks≥{args.min_picks}, min_score≥{args.min_score})")
+
+    def sta_code(station_id):
+        parts = str(station_id).rstrip(".").split(".")
+        return parts[1] if len(parts) > 1 else parts[0]
+
+    event_stations = defaultdict(set)
+    for _, row in picks_df[picks_df["event_index"] >= 0].iterrows():
+        event_stations[int(row["event_index"])].add(sta_code(row["station_id"]))
+
+    station_index = build_station_index()
+
+    # Dry run: estimate size
+    win_len = args.before + args.after
+    total_traces = sum(
+        len(event_stations[int(ev["event_index"])])
+        for _, ev in events_df.iterrows()
+    )
+    n_chan = 1 if args.channels == "Z" else 3
+    est_bytes = total_traces * n_chan * win_len * 100 * 4
+    est_compressed = est_bytes * 0.25
+    print(f"Estimated output: {est_bytes/1e9:.2f} GB uncompressed, "
+          f"~{est_compressed/1e9:.2f} GB compressed (Steim2)")
+    if args.dry_run:
+        return
+
+    # Group events by calendar day for cache-efficient I/O
+    events_df = events_df.copy()
+    events_df["_dt"]   = pd.to_datetime(events_df["time"])
+    events_df["_year"] = events_df["_dt"].dt.year
+    events_df["_jday"] = events_df["_dt"].dt.day_of_year
+
+    day_groups = {}
+    for _, ev in events_df.iterrows():
+        key = (int(ev["_year"]), int(ev["_jday"]))
+        day_groups.setdefault(key, []).append(ev.to_dict())
+
+    print(f"Calendar days spanned: {len(day_groups)}  |  workers: {args.workers}")
+
+    work_items = [
+        (evs, dict(event_stations), station_index,
+         channels, args.before, args.after, config.WAVEFORMS_DIR)
+        for evs in day_groups.values()
+    ]
+
+    total_written = total_skipped = 0
+
+    with ProcessPoolExecutor(max_workers=args.workers) as pool:
+        futures = {pool.submit(process_day, item): item for item in work_items}
+        with tqdm(total=len(events_df), desc="Events") as pbar:
+            for fut in as_completed(futures):
+                w, s = fut.result()
+                total_written  += w
+                total_skipped  += s
+                pbar.update(w + s)
+
+    print(f"\nDone: {total_written} events written to {config.WAVEFORMS_DIR}, "
+          f"{total_skipped} skipped (no waveform data)")
+    print(f"Next step — build markers:")
+    print(f"  python 02_picks_to_markers.py --only-extracted")
     print(f"  snuffler {config.WAVEFORMS_DIR}/*.mseed "
           f"--markers={config.MARKERS_FOR_QC}")
 
