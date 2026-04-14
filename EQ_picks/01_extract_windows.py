@@ -148,7 +148,6 @@ def process_day(args_tuple):
     Returns (written, skipped) counts.
     """
     (day_events,        # list of dicts (one per event)
-     event_stations,    # dict: ev_idx → set of station codes
      station_index,     # dict: sta_code → {network, data_root, corrected}
      channels,          # list of channel codes
      before_s,          # float
@@ -175,10 +174,7 @@ def process_day(args_tuple):
 
         event_stream = obspy.Stream()
 
-        for sta in event_stations.get(ev_idx, set()):
-            if sta not in station_index:
-                continue
-            info = station_index[sta]
+        for sta, info in station_index.items():
 
             for (yr, jd) in days_needed:
                 cache_key = (sta, yr, jd)
@@ -283,14 +279,11 @@ def main():
 
     station_index = build_station_index()
 
-    # Dry run: estimate size
+    # Dry run: estimate size (all stations × all events)
     win_len = args.before + args.after
-    total_traces = sum(
-        len(event_stations[int(ev["event_index"])])
-        for _, ev in events_df.iterrows()
-    )
+    n_stations = len(station_index)
     n_chan = 1 if args.channels == "Z" else 3
-    est_bytes = total_traces * n_chan * win_len * 100 * 4
+    est_bytes = len(events_df) * n_stations * n_chan * win_len * 100 * 4
     est_compressed = est_bytes * 0.25
     print(f"Estimated output: {est_bytes/1e9:.2f} GB uncompressed, "
           f"~{est_compressed/1e9:.2f} GB compressed (Steim2)")
@@ -311,8 +304,7 @@ def main():
     print(f"Calendar days spanned: {len(day_groups)}  |  workers: {args.workers}")
 
     work_items = [
-        (evs, dict(event_stations), station_index,
-         channels, args.before, args.after, config.WAVEFORMS_DIR)
+        (evs, station_index, channels, args.before, args.after, config.WAVEFORMS_DIR)
         for evs in day_groups.values()
     ]
 
