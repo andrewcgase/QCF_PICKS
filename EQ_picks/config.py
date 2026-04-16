@@ -8,7 +8,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # Data directories
 # ---------------------------------------------------------------------------
-DATA_ROOT     = Path("/Users/andrew/research/QCF/DATA")
+DATA_ROOT     = Path("/home/andrewgase/research/QCF/DATA")
 
 # OBS miniSEED: raw_data/QCBxx/Data/YYYY/DDD/YI_QCBxx_CHAN__YYYY_DDD.msd
 OBS_RAW       = DATA_ROOT / "raw_data"
@@ -35,7 +35,7 @@ ONSHORE_NETWORKS = ["AK", "AT", "CN", "US"]
 # ---------------------------------------------------------------------------
 # Station metadata
 # ---------------------------------------------------------------------------
-SEISBENCH_DIR = Path("/Users/andrew/research/QCF/seisbench/apply")
+SEISBENCH_DIR = Path("/home/andrewgase/research/QCF/seisbench/apply")
 ONSHORE_XML   = SEISBENCH_DIR / "xml" / "onshore.xml"
 OBS_META_CSV  = Path(__file__).parent.parent / "WA_picks" / "EarthScope_OBS_Deployments.csv"
 

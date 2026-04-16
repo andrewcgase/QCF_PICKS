@@ -145,7 +145,7 @@ def build_station_index():
 def process_day(args_tuple):
     """
     Process all events that fall on a single calendar day.
-    Returns (written, skipped) counts.
+    Returns (written, skipped, already_done) counts.
     """
     (day_events,        # list of dicts (one per event)
      station_index,     # dict: sta_code → {network, data_root, corrected}
@@ -153,13 +153,17 @@ def process_day(args_tuple):
      before_s,          # float
      after_s,           # float
      out_dir,           # Path
+     skip_existing,     # bool
      ) = args_tuple
 
     stream_cache = {}
-    written = skipped = 0
+    written = skipped = already_done = 0
 
     for ev in day_events:
         ev_idx = int(ev["event_index"])
+        if skip_existing and (Path(out_dir) / f"ev{ev_idx}.mseed").exists():
+            already_done += 1
+            continue
         ot     = UTCDateTime(ev["time"])
         t0     = ot - before_s
         t1     = ot + after_s
@@ -217,7 +221,7 @@ def process_day(args_tuple):
         except Exception:
             skipped += 1
 
-    return written, skipped
+    return written, skipped, already_done
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +246,8 @@ def main():
                         help=f"Seconds after origin time (default: {config.WINDOW_AFTER_S}).")
     parser.add_argument("--workers", type=int, default=4,
                         help="Number of parallel worker processes (default: 4).")
+    parser.add_argument("--skip-existing", action="store_true",
+                        help="Skip events whose output file already exists (resume a partial run).")
     parser.add_argument("--dry-run", action="store_true",
                         help="Estimate output size and exit without writing files.")
     args = parser.parse_args()
@@ -304,23 +310,33 @@ def main():
     print(f"Calendar days spanned: {len(day_groups)}  |  workers: {args.workers}")
 
     work_items = [
-        (evs, station_index, channels, args.before, args.after, config.WAVEFORMS_DIR)
+        (evs, station_index, channels, args.before, args.after,
+         config.WAVEFORMS_DIR, args.skip_existing)
         for evs in day_groups.values()
     ]
 
-    total_written = total_skipped = 0
+    total_written = total_skipped = total_already_done = 0
 
     with ProcessPoolExecutor(max_workers=args.workers) as pool:
         futures = {pool.submit(process_day, item): item for item in work_items}
         with tqdm(total=len(events_df), desc="Events") as pbar:
             for fut in as_completed(futures):
-                w, s = fut.result()
-                total_written  += w
-                total_skipped  += s
-                pbar.update(w + s)
+                try:
+                    w, s, d = fut.result()
+                    total_written      += w
+                    total_skipped      += s
+                    total_already_done += d
+                    pbar.update(w + s + d)
+                except Exception as exc:
+                    day_evs = futures[fut][0]
+                    day_key = (day_evs[0].get("_year"), day_evs[0].get("_jday"))
+                    print(f"\nWorker crashed on day {day_key} ({len(day_evs)} events): {exc}",
+                          flush=True)
+                    pbar.update(len(day_evs))
 
     print(f"\nDone: {total_written} events written to {config.WAVEFORMS_DIR}, "
-          f"{total_skipped} skipped (no waveform data)")
+          f"{total_skipped} skipped (no waveform data), "
+          f"{total_already_done} skipped (already existed)")
     print(f"Next step — build markers:")
     print(f"  python 02_picks_to_markers.py --only-extracted")
     print(f"  snuffler {config.WAVEFORMS_DIR}/*.mseed "
