@@ -160,11 +160,17 @@ def process_day(args_tuple):
     written = skipped = already_done = 0
 
     for ev in day_events:
-        ev_idx = int(ev["event_index"])
-        if skip_existing and (Path(out_dir) / f"ev{ev_idx}.mseed").exists():
+        ev_idx   = int(ev["event_index"])
+        ot       = UTCDateTime(ev["time"])
+        # Monthly subdirectory based on event origin time (window may cross
+        # month boundary but the file is always placed by origin month)
+        ev_month = f"{ot.year:04d}-{ot.month:02d}"
+        out_path = Path(out_dir) / ev_month / f"ev{ev_idx}.mseed"
+
+        if skip_existing and out_path.exists():
             already_done += 1
             continue
-        ot     = UTCDateTime(ev["time"])
+
         t0     = ot - before_s
         t1     = ot + after_s
         year   = int(ev["_year"])
@@ -215,7 +221,7 @@ def process_day(args_tuple):
                 continue
             for tr in win:
                 tr.data = tr.data.astype(np.int32)
-            out_path = Path(out_dir) / f"ev{ev_idx}.mseed"
+            out_path.parent.mkdir(parents=True, exist_ok=True)
             win.write(str(out_path), format="MSEED", encoding="STEIM2")
             written += 1
         except Exception:

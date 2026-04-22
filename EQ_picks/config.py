@@ -79,8 +79,8 @@ SEISBENCH_WEIGHTS  = "PickBlue"    # sbm.PhaseNet.from_pretrained("PickBlue")
 PICK_THRESHOLD_P   = 0.3
 PICK_THRESHOLD_S   = 0.3
 SEISBENCH_BATCH    = 256
-WINDOW_BEFORE_S    = 30.0          # seconds before origin time
-WINDOW_AFTER_S     = 90.0          # seconds after origin time
+WINDOW_BEFORE_S    = 60.0          # seconds before origin time
+WINDOW_AFTER_S     = 120.0         # seconds after origin time
 MAX_STATION_DIST_KM = 400          # skip stations beyond this distance
 
 # ---------------------------------------------------------------------------

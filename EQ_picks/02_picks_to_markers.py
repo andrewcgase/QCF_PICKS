@@ -41,9 +41,9 @@ from pyrocko import util as putil
 import config
 
 
-def gamma_score_to_color(score):
+def gamma_score_to_kind(score):
     """
-    Map a GaMMA score (0–1) to a Pyrocko marker colour index (0–7).
+    Map a GaMMA score (0–1) to a Pyrocko marker kind index (0–7).
     Higher score → warmer colour.
     """
     if score is None or pd.isna(score):
@@ -64,6 +64,13 @@ def main():
                         help="Skip events with gamma_score below this value (default: 0).")
     parser.add_argument("--only-extracted", action="store_true",
                         help="Only include events whose ev*.mseed file exists in waveforms/.")
+    parser.add_argument("--month", default=None,
+                        help="Filter to a single month YYYY-MM (e.g. 2022-04). "
+                             "Sets default --out to markers/YYYY-MM.markers.")
+    parser.add_argument("--max-events", type=int, default=None,
+                        help="Limit to the first N events (for working in batches).")
+    parser.add_argument("--out", type=Path, default=None,
+                        help="Output markers file (default: markers/events_to_review.markers).")
     args = parser.parse_args()
 
     config.MARKERS_DIR.mkdir(parents=True, exist_ok=True)
@@ -79,10 +86,29 @@ def main():
         events_df = events_df[events_df["num_picks"] >= args.min_picks]
     if "gamma_score" in events_df.columns and args.min_score > 0:
         events_df = events_df[events_df["gamma_score"] >= args.min_score]
+    # Add _month column for filtering
+    events_df["_dt"]    = pd.to_datetime(events_df["time"])
+    events_df["_month"] = events_df["_dt"].dt.strftime("%Y-%m")
+
+    if args.month:
+        events_df = events_df[events_df["_month"] == args.month]
+        if args.out is None:
+            args.out = config.MARKERS_DIR / f"{args.month}.markers"
+
     if args.only_extracted:
-        extracted = {int(p.stem.lstrip("ev"))
-                     for p in config.WAVEFORMS_DIR.glob("ev*.mseed")}
+        # Scan all monthly subdirectories under waveforms/
+        extracted = set()
+        for sub in config.WAVEFORMS_DIR.iterdir():
+            if sub.is_dir():
+                for p in sub.glob("ev*.mseed"):
+                    extracted.add(int(p.stem.lstrip("ev")))
+        # Also catch any flat ev*.mseed still in the root (old-style)
+        for p in config.WAVEFORMS_DIR.glob("ev*.mseed"):
+            extracted.add(int(p.stem.lstrip("ev")))
         events_df = events_df[events_df["event_index"].isin(extracted)]
+
+    if args.max_events:
+        events_df = events_df.head(args.max_events)
 
     print(f"Events: {len(events_df)}")
 
@@ -115,7 +141,7 @@ def main():
 
     for _, ev in events_df.iterrows():
         ev_idx  = int(ev["event_index"])
-        ot      = putil.str_to_time(str(ev["time"]).replace(" ", "T"))
+        ot      = putil.str_to_time(str(ev["time"]).replace("T", " "))
 
         lat  = float(ev["latitude"])  if "latitude"  in ev else 0.0
         lon  = float(ev["longitude"]) if "longitude" in ev else 0.0
@@ -123,7 +149,7 @@ def main():
         mag  = float(ev["magnitude"]) if "magnitude" in ev and not pd.isna(ev.get("magnitude")) else None
 
         score = ev.get("gamma_score", None)
-        color = gamma_score_to_color(score)
+        kind  = gamma_score_to_kind(score)
 
         event_obj = Event(
             time=ot,
@@ -143,9 +169,7 @@ def main():
             try:
                 net, sta, loc = parse_nslc(pk["station_id"])
                 phase = str(pk.get("phase_type", "P")).upper()
-                pt    = putil.str_to_time(str(pk["phase_time"]).replace(" ", "T"))
-                # Pyrocko PhaseMarker nslc_ids: list of (net, sta, loc, chan)
-                # Use wildcard channel since we have multiple channels per station
+                pt    = putil.str_to_time(str(pk["phase_time"]).replace("T", " "))
                 nslc  = [(net, sta, loc, "*")]
                 pm_marker = pm.PhaseMarker(
                     nslc_ids=nslc,
@@ -153,7 +177,7 @@ def main():
                     tmax=pt,
                     phasename=phase,
                     event=event_obj,
-                    color_id=color,
+                    kind=kind,
                 )
                 markers.append(pm_marker)
             except Exception:
@@ -162,15 +186,18 @@ def main():
     # -----------------------------------------------------------------------
     # Write markers file
     # -----------------------------------------------------------------------
-    pm.save_markers(markers, str(config.MARKERS_FOR_QC))
+    out_path = args.out if args.out else config.MARKERS_FOR_QC
+    pm.save_markers(markers, str(out_path))
     n_ev  = sum(1 for m in markers if isinstance(m, pm.EventMarker))
     n_ph  = sum(1 for m in markers if isinstance(m, pm.PhaseMarker))
     print(f"\nWrote {n_ev} event markers and {n_ph} phase markers to:")
-    print(f"  {config.MARKERS_FOR_QC}")
+    print(f"  {out_path}")
 
     print(f"\nLaunch Snuffler:")
-    print(f"  snuffler {config.WAVEFORMS_DIR}/*.mseed "
-          f"--markers={config.MARKERS_FOR_QC}")
+    waveform_path = (config.WAVEFORMS_DIR / args.month
+                     if args.month else config.WAVEFORMS_DIR)
+    print(f"  snuffler {waveform_path}/ "
+          f"--markers={out_path}")
 
 
 if __name__ == "__main__":

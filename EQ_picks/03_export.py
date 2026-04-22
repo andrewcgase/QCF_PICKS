@@ -54,6 +54,15 @@ def load_reviewed_catalog(markers_path):
     """
     markers = load_markers(str(markers_path))
 
+    # Link phase markers to their events via hash (not done automatically on load)
+    hash_to_event = {}
+    for m in markers:
+        if isinstance(m, EventMarker):
+            hash_to_event[m.get_event_hash()] = m.get_event()
+    for m in markers:
+        if isinstance(m, PhaseMarker) and m._event_hash in hash_to_event:
+            m.set_event(hash_to_event[m._event_hash])
+
     ev_rows, ph_rows = [], []
     event_map = {}   # pyrocko event name → row index
 
@@ -66,7 +75,7 @@ def load_reviewed_catalog(markers_path):
                 "latitude":  e.lat,
                 "longitude": e.lon,
                 "depth_km":  (e.depth or 0.0) / 1000.0,
-                "magnitude": e.magnitude,
+                "magnitude": e.magnitude if e.magnitude != 999.0 else None,
             })
             event_map[e.name] = e
 
@@ -82,7 +91,7 @@ def load_reviewed_catalog(markers_path):
                 "location":   nslc[2],
                 "channel":    nslc[3],
                 "station_id": f"{nslc[0]}.{nslc[1]}.{nslc[2]}.",
-                "phase":      m.phasename or "?",
+                "phase":      m._phasename or "?",
                 "pick_time":  time_to_str(m.tmin),
                 "score":      None,
             })
