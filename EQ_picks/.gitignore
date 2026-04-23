@@ -1,0 +1,19 @@
+# Waveforms — too large for git; transfer separately via rsync/scp
+waveforms/
+
+# Generated catalog outputs
+catalogs/
+
+# Reviewed and generated marker files
+markers/*.markers
+
+# Logs
+*.log
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Conda installer
+Miniforge3-*.sh

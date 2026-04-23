@@ -8,177 +8,272 @@ export the reviewed catalog for seismic tomography.
 ## Overview
 
 The pipeline takes an existing detection catalog (SeisBench + GaMMA picks) and
-produces a carefully QC'd catalog suitable for double-difference tomography
-(HypoDD / TomoDD).  Manual review is done in Snuffler with the existing
-PhaseNet/PickBlue picks pre-loaded as markers.
+produces a QC'd catalog suitable for double-difference tomography
+(HypoDD / TomoDD). Manual review is done in Snuffler with the PhaseNet/PickBlue
+picks pre-loaded as markers.
 
 ```
-[detection catalog + SeisBench picks]
+[GaMMA detection catalog — gamma_events.csv, gamma_picks_refined.csv]
         │
         ▼
-01_extract_windows.py   Package per-event waveforms as miniSEED for sharing
+01_extract_windows.py     (instructor only) Package per-event waveforms
         │
         ▼
-02_picks_to_markers.py  Convert SeisBench picks → Pyrocko markers file
-        │
-    [Snuffler]          Review waveforms, delete bad picks, adjust times
+     [transfer waveforms/ to student via rsync or scp]
         │
         ▼
-03_export.py            Export reviewed catalog to CSV / QuakeML / HypoDD / TomoDD
+02_picks_to_markers.py    Convert GaMMA picks → Pyrocko markers file
+        │
+    [Snuffler]            Review waveforms, delete bad picks, adjust times
+        │
+        ▼
+03_export.py              Export reviewed catalog to CSV / QuakeML / HypoDD / TomoDD
 ```
 
 ---
 
 ## Setup
 
-### 1. Clone and create environment
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/andrewcgase/QCF_PICKS.git
 cd QCF_PICKS/EQ_picks
+```
+
+### 2. Create and activate the conda environment
+
+```bash
 conda env create -f environment.yml
 conda activate qcf_eq
 ```
 
-### 2. Edit `config.py`
+### 3. Apply the Snuffler patch
 
-Open `config.py` and set the paths for your local copy of the data:
-
-```python
-DATA_ROOT     = Path("/your/path/to/DATA")      # contains raw_data/, corrected_clock_final/, onshore/
-INPUT_EVENTS  = Path("/your/path/to/gamma_events.csv")   # detection catalog
-INPUT_PICKS   = Path("/your/path/to/gamma_picks_refined.csv")
-ONSHORE_XML   = Path("/your/path/to/onshore.xml")
-OBS_META_CSV  = Path("/your/path/to/EarthScope_OBS_Deployments.csv")
-```
-
----
-
-## Running the pipeline
-
-### Step 1 — Extract waveform windows
+Snuffler has a bug in pick-click detection that prevents loaded phase markers
+from being selectable. Run this once after creating the environment:
 
 ```bash
 conda activate qcf_eq
-python 01_extract_windows.py                    # all events (≥5 picks)
-python 01_extract_windows.py --min-picks 8      # stricter quality filter
-python 01_extract_windows.py --channels Z       # vertical only (smaller)
-python 01_extract_windows.py --max-events 50    # test run
-python 01_extract_windows.py --dry-run          # estimate size, no writing
+python patch_pyrocko.py
 ```
 
-Reads `INPUT_EVENTS` and `INPUT_PICKS`, extracts a waveform window around each
-event's origin time from every station that contributed picks, and saves one
-Steim2-compressed miniSEED file per event: `waveforms/ev{event_index}.mseed`.
+The script is idempotent — running it a second time does nothing.
 
-**Estimated output sizes:**
-| Filter | Approx. compressed size |
-|---|---|
-| All 10,471 events, 3 channels, 120 s | ~1–2 GB |
-| `--min-picks 8` (~5,000 events) | ~500 MB |
-| `--min-picks 8 --channels Z` | ~150 MB |
+### 4. Edit `config.py`
 
-**Key parameters in `config.py`:**
-| Parameter | Default | Description |
+Open `config.py` and update the two path variables for your machine.
+The student workflow only needs `INPUT_EVENTS` and `INPUT_PICKS`
+(the GaMMA catalog CSVs); you do **not** need access to the raw seismograph
+data (that was only required for Step 1, which the instructor already ran).
+
+```python
+SEISBENCH_DIR = Path("/your/path/to/seisbench/apply")   # contains gamma_events.csv etc.
+```
+
+Everything else (`WAVEFORMS_DIR`, `MARKERS_DIR`, `CATALOGS_DIR`) is relative to
+the repo directory and requires no changes.
+
+---
+
+## Receiving waveforms from the instructor
+
+The waveform package is too large for git. The instructor will transfer
+`waveforms/` to you separately.
+
+**Option A — rsync (recommended, resumable):**
+
+```bash
+rsync -avz --progress \
+    instructor@hostname:/path/to/QCF_PICKS/EQ_picks/waveforms/ \
+    waveforms/
+```
+
+**Option B — scp:**
+
+```bash
+scp -r instructor@hostname:/path/to/QCF_PICKS/EQ_picks/waveforms/ \
+    waveforms/
+```
+
+After transfer, the directory should look like:
+
+```
+waveforms/
+├── 2021-10/
+│   ├── ev1234.mseed
+│   └── ev1235.mseed
+├── 2021-11/
+│   └── ...
+└── 2022-04/
+    └── ...
+```
+
+Each file is a 3-minute window (60 s before + 120 s after origin time) for all
+available stations, saved as Steim2-compressed miniSEED.
+
+---
+
+## Step 2 — Build Snuffler markers
+
+Convert the GaMMA pick catalog to a Pyrocko markers file.
+
+```bash
+conda activate qcf_eq
+
+# All events that have an extracted waveform file:
+python 02_picks_to_markers.py --only-extracted
+
+# To work one month at a time (recommended — faster Snuffler load):
+python 02_picks_to_markers.py --only-extracted --month 2022-04
+```
+
+Options:
+
+| Flag | Default | Description |
 |---|---|---|
-| `WINDOW_BEFORE_S` | `30` | Seconds before origin time |
-| `WINDOW_AFTER_S` | `90` | Seconds after origin time |
+| `--only-extracted` | off | Only include events with a waveform file in `waveforms/` |
+| `--month YYYY-MM` | all | Restrict to a single calendar month |
+| `--min-picks N` | 5 | Skip events with fewer than N associated picks |
+| `--max-events N` | all | Cap at N events (useful for testing) |
+| `--out PATH` | auto | Output markers file path |
 
-### Step 2 — Build Snuffler markers
+Output: `markers/events_to_review.markers` (or `markers/YYYY-MM.markers` when
+`--month` is used).
+
+---
+
+## Step 3 — QC in Snuffler
+
+### Launch
 
 ```bash
-python 02_picks_to_markers.py                   # all filtered events
-python 02_picks_to_markers.py --only-extracted  # only events with mseed files
-python 02_picks_to_markers.py --min-picks 8
+# All waveforms at once:
+snuffler waveforms/ --markers=markers/events_to_review.markers
+
+# One month only (faster):
+snuffler waveforms/2022-04/ --markers=markers/2022-04.markers
 ```
 
-Converts `gamma_events.csv` + `gamma_picks_refined.csv` to a Pyrocko
-`.markers` file at `markers/events_to_review.markers`.
+### Navigation
 
-Then open Snuffler:
+| Key | Action |
+|---|---|
+| `e` | Jump to next event |
+| `E` | Jump to previous event |
+| `f` | Toggle bandpass filter (2–20 Hz recommended) |
+| `+` / `-` | Zoom time axis in / out |
+| `s` (window) | Scale traces |
+| `a` / `A` | Scroll earlier / later |
 
-```bash
-snuffler waveforms/*.mseed --markers=markers/events_to_review.markers
+### Reviewing picks
+
+Loaded phase markers appear as coloured vertical lines on the traces.
+**Green** = high PhaseNet confidence (≥0.8), **yellow** = medium, **red** = low.
+
+**To delete a bad pick:**
+
+1. Press `Escape` to exit picking mode (if active).
+2. Left-click the pick marker to select it (it will highlight).
+3. Press `Backspace` to delete.
+
+**To add a new pick:**
+
+1. Press `p` (P-wave) or `s` (S-wave) to enter picking mode.
+2. Left-click on the waveform at the desired arrival time.
+3. Press `Escape` to exit picking mode.
+
+**To move a pick:**
+
+Delete the existing pick and add a new one at the correct time.
+
+### Saving
+
+When finished reviewing a session:
+
+```
+File → Save Markers
 ```
 
-**In Snuffler:**
-- `e` / `E` — jump to next / previous event
-- `p` / `s` — add a P or S pick at cursor position
-- Right-click a pick → Delete, or change phase name
-- `f` — toggle filter (use bandpass 2–20 Hz for most phases)
-- `File → Save Markers` — save your changes
+Save to `markers/events_reviewed.markers` (or append a date/suffix if working
+in batches, e.g. `markers/2022-04_reviewed.markers`).
 
-Save reviewed markers to `markers/events_reviewed.markers`.
+**Your edits are not auto-saved.** Save before closing Snuffler.
 
-### Step 3 — Export
+---
+
+## Step 4 — Export
 
 ```bash
+conda activate qcf_eq
+
+# Export using the default reviewed markers file:
 python 03_export.py
-# or specify a different markers file:
-python 03_export.py --markers markers/my_revised.markers
+
+# Or specify a custom file:
+python 03_export.py --markers markers/2022-04_reviewed.markers
 ```
 
-Exports the QC'd catalog to four formats:
+Output files written to `catalogs/`:
 
 | File | Format | Use for |
 |---|---|---|
-| `catalogs/catalog_final.csv` | CSV | General analysis, plotting |
-| `catalogs/catalog_final.qml` | QuakeML | ObsPy / SeisComp workflows |
-| `catalogs/hypodd_phase.dat` | HypoDD `phase.dat` | Input to `ph2dt` → HypoDD |
-| `catalogs/tomodd_phase.dat` | TomoDD | Input to TomoDD inversion |
+| `catalog_final.csv` | CSV | General analysis, plotting |
+| `catalog_final.qml` | QuakeML | ObsPy / SeisComp workflows |
+| `hypodd_phase.dat` | HypoDD `phase.dat` | Input to `ph2dt` → HypoDD |
+| `tomodd_phase.dat` | TomoDD | Input to TomoDD inversion |
+
+Pick weights in HypoDD/TomoDD output are derived from PhaseNet confidence
+scores (high confidence → weight 1.0; low confidence → weight 0.2).
 
 ---
 
-## Data layout expected
+## File structure
 
 ```
-DATA/
-├── corrected_clock_final/
-│   ├── QCB06/
-│   │   ├── HHZ/   YI_QCB06_HHZ__YYYY_DDD.c1.msd
-│   │   ├── HH1/
-│   │   └── HH2/
-│   └── QCB28/  ...
-├── raw_data/
-│   ├── QCB01/
-│   │   └── Data/
-│   │       └── YYYY/
-│   │           └── DDD/  YI_QCB01_HHZ__YYYY_DDD.msd
-│   └── QCBxx/ ...
-└── onshore/
-    ├── AK/
-    │   └── S32K/
-    │       └── Data/YYYY/DDD/  AK_S32K_BHZ__YYYY_DDD.msd
-    └── NET/STA/Data/...
+EQ_picks/
+├── config.py                   Edit paths for your machine
+├── environment.yml             Conda environment definition
+├── patch_pyrocko.py            Run once after conda env setup
+│
+├── 01_extract_windows.py       (instructor) Extract waveform windows
+├── 02_picks_to_markers.py      Build Pyrocko markers from GaMMA picks
+├── 03_export.py                Export reviewed catalog
+│
+├── waveforms/                  NOT in git — transfer from instructor
+│   ├── 2021-10/
+│   │   └── ev{N}.mseed
+│   └── YYYY-MM/
+│
+├── markers/                    Created locally
+│   ├── events_to_review.markers   Generated by 02_picks_to_markers.py
+│   └── events_reviewed.markers    Saved from Snuffler after QC
+│
+└── catalogs/                   Created locally
+    ├── catalog_final.csv
+    ├── catalog_final.qml
+    ├── hypodd_phase.dat
+    └── tomodd_phase.dat
 ```
-
-**OBS stations excluded from raw_data** (use clock-corrected versions):
-QCB06, QCB28
-
-**OBS stations skipped** (bad clock / data):
-QCB10, QCB14, QCB20
 
 ---
 
-## Output column descriptions
+## Troubleshooting
 
-### `catalog_final.csv`
-| Column | Description |
-|---|---|
-| `event_id` | Internal ID from Snuffler marker |
-| `time` | Origin time (UTC ISO) |
-| `latitude` | Decimal degrees |
-| `longitude` | Decimal degrees |
-| `depth_km` | Hypocentral depth (km) |
-| `magnitude` | Magnitude (if assigned) |
+**Snuffler loads but I see no waveforms for an event**
+- The event may not have had a waveform extracted (low pick count, data gap).
+  Use `--only-extracted` when building markers.
 
-### `hypodd_phase.dat`
-Standard HypoDD `phase.dat` format (see HypoDD manual §3.1).
-Feed directly to `ph2dt`.  Pick weights are derived from PhaseNet scores.
+**Phase markers are visible but clicking them does nothing**
+- The pyrocko patch was not applied. Run `python patch_pyrocko.py`.
 
-### `tomodd_phase.dat`
-Absolute travel times in the same layout as HypoDD `phase.dat`.
-Each event block begins with `#` followed by the event header line.
+**`03_export.py` reports 0 picks**
+- Make sure you saved markers from Snuffler before running export.
+- Check that the markers file path matches what `--markers` expects.
+
+**Snuffler is very slow to load**
+- Work one month at a time: `--month YYYY-MM` when building markers, then
+  point Snuffler at `waveforms/YYYY-MM/` instead of `waveforms/`.
 
 ---
 
