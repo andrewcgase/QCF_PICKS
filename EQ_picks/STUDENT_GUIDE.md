@@ -50,7 +50,7 @@ station-channel, arranged by time. Coloured vertical lines are the
 |--------|---------|
 | Green  | High-confidence pick (PhaseNet score ≥ 0.8) — probably correct |
 | Yellow | Medium confidence (0.5–0.8) — check carefully |
-| Red    | Low confidence (< 0.5) — assume wrong until proven right |
+| Red    | Two cases: (1) pre-loaded pick with low ML confidence (< 0.5) — assume wrong until proven right; (2) event markers and any pick you add manually always appear red because they have no ML score — red on a manual pick does **not** mean it is bad |
 
 Press `e` to jump to the first event. Each jump centres the view on the
 event origin time and loads the associated waveform window.
