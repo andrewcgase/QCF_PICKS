@@ -66,11 +66,25 @@ WAVEFORMS_DIR    = BASE / "waveforms"
 MARKERS_FOR_QC   = MARKERS_DIR  / "events_to_review.markers"
 MARKERS_REVIEWED = MARKERS_DIR  / "events_reviewed.markers"   # saved by Snuffler after QC
 
-# Step 4 final exports
+# Step 4 final exports — GaMMA catalog
 CATALOG_CSV      = CATALOGS_DIR / "catalog_final.csv"
 CATALOG_QML      = CATALOGS_DIR / "catalog_final.qml"
 HYPODD_PHASE     = CATALOGS_DIR / "hypodd_phase.dat"
 TOMODD_PHASE     = CATALOGS_DIR / "tomodd_phase.dat"
+
+# ---------------------------------------------------------------------------
+# TOQUES OBS catalog (SEISAN Nordic format, from Liu)
+# ---------------------------------------------------------------------------
+TOQUES_NOR              = Path("/home/andrewgase/research/QCF/tomoDD_student/raw_data/toques_catalog/QCF_Pickblue_NLL_liu.nor")
+WAVEFORMS_TOQUES_DIR    = BASE / "waveforms_toques"
+MARKERS_TOQUES_FOR_QC   = MARKERS_DIR / "toques_to_review.markers"
+MARKERS_TOQUES_REVIEWED = MARKERS_DIR / "toques_reviewed.markers"
+
+# Step 4 final exports — TOQUES catalog
+CATALOG_TOQUES_CSV   = CATALOGS_DIR / "toques_catalog_final.csv"
+CATALOG_TOQUES_QML   = CATALOGS_DIR / "toques_catalog_final.qml"
+HYPODD_TOQUES_PHASE  = CATALOGS_DIR / "toques_hypodd_phase.dat"
+TOMODD_TOQUES_PHASE  = CATALOGS_DIR / "toques_tomodd_phase.dat"
 
 # ---------------------------------------------------------------------------
 # SeisBench parameters

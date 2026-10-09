@@ -15,7 +15,11 @@ Usage
   python 04_export.py
 
   # Export from a specific markers file (e.g. after a second QC pass):
-  python 04_export.py --markers markers/my_revision.markers
+  python 03_export.py --markers markers/my_revision.markers
+
+  # Export TOQUES catalog (writes to toques_* output files):
+  python 03_export.py --toques
+  python 03_export.py --toques --markers markers/toques_reviewed.markers
 """
 
 import argparse
@@ -295,10 +299,25 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
-        "--markers", type=Path, default=config.MARKERS_REVIEWED,
-        help=f"Reviewed Pyrocko markers file (default: {config.MARKERS_REVIEWED})"
+        "--markers", type=Path, default=None,
+        help="Reviewed Pyrocko markers file (default: depends on --toques flag)."
+    )
+    parser.add_argument(
+        "--toques", action="store_true",
+        help="Export the TOQUES catalog (uses toques_* output paths and TOQUES markers default)."
     )
     args = parser.parse_args()
+
+    if args.toques:
+        if args.markers is None:
+            args.markers = config.MARKERS_TOQUES_REVIEWED
+        config.CATALOG_CSV  = config.CATALOG_TOQUES_CSV
+        config.CATALOG_QML  = config.CATALOG_TOQUES_QML
+        config.HYPODD_PHASE = config.HYPODD_TOQUES_PHASE
+        config.TOMODD_PHASE = config.TOMODD_TOQUES_PHASE
+    else:
+        if args.markers is None:
+            args.markers = config.MARKERS_REVIEWED
 
     if not args.markers.exists():
         sys.exit(

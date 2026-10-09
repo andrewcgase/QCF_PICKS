@@ -1,5 +1,6 @@
 # Waveforms — too large for git; transfer separately via rsync/scp
 waveforms/
+waveforms_toques/
 
 # Generated catalog outputs
 catalogs/
