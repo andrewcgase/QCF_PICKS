@@ -75,7 +75,7 @@ TOMODD_PHASE     = CATALOGS_DIR / "tomodd_phase.dat"
 # ---------------------------------------------------------------------------
 # TOQUES OBS catalog (SEISAN Nordic format, from Liu)
 # ---------------------------------------------------------------------------
-TOQUES_NOR              = Path("/home/andrewgase/research/QCF/tomoDD_student/raw_data/toques_catalog/QCF_Pickblue_NLL_liu.nor")
+TOQUES_NOR              = BASE / "input" / "QCF_Pickblue_NLL_liu.nor"
 WAVEFORMS_TOQUES_DIR    = BASE / "waveforms_toques"
 MARKERS_TOQUES_FOR_QC   = MARKERS_DIR / "toques_to_review.markers"
 MARKERS_TOQUES_REVIEWED = MARKERS_DIR / "toques_reviewed.markers"

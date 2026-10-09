@@ -73,7 +73,7 @@ earthquakes. Station codes in the Nordic file (`CB01`–`CB28`) are automaticall
 - Raw OBS data: `/home/andrewgase/research/QCF/DATA/raw_data/`
 - Clock-corrected OBS (QCB06, QCB28): `/home/andrewgase/research/QCF/DATA/corrected_clock_final/`
 - GaMMA catalog: `/home/andrewgase/research/QCF/seisbench/apply/`
-- TOQUES Nordic catalog: `/home/andrewgase/research/QCF/tomoDD_student/raw_data/toques_catalog/QCF_Pickblue_NLL_liu.nor`
+- TOQUES Nordic catalog: `input/QCF_Pickblue_NLL_liu.nor` (bundled in repo)
 - GaMMA waveforms: `waveforms/` (not in git; transferred separately)
 - TOQUES waveforms: `waveforms_toques/` (not in git; transferred separately)
 - Markers: `markers/`
