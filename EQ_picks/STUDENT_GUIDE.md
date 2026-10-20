@@ -26,7 +26,8 @@ hypocentre.
 
 ## Before you start: the setup
 
-Follow the steps in `README.md` first. The short version:
+Follow the steps in `README.md` first. The short version (Pipeline A —
+GaMMA catalog):
 
 ```bash
 conda activate qcf_eq
@@ -37,6 +38,11 @@ snuffler waveforms/YYYY-MM/ --markers=markers/YYYY-MM.markers
 
 Work **one month at a time** — it keeps Snuffler fast and lets you save
 progress in batches.
+
+If you're reviewing the **TOQUES catalog** instead (Pipeline B — see the
+dedicated section below), the commands differ slightly; everything else
+in this guide (what a good pick looks like, the decision tree, workflow
+tips) applies the same way to both catalogs.
 
 ---
 
@@ -164,6 +170,53 @@ Output files appear in `catalogs/`:
 | `catalog_final.qml` | ObsPy / SeisComp |
 | `hypodd_phase.dat` | Input to `ph2dt` → HypoDD |
 | `tomodd_phase.dat` | Input to TomoDD |
+
+---
+
+## Pipeline B: the TOQUES catalog
+
+TOQUES is a separate, smaller catalog (574 events, already located by NLLoc
+by Liu — different source than the GaMMA/PhaseNet catalog in Pipeline A).
+Same OBS stations, same Snuffler workflow, but different setup commands and
+a different colour code.
+
+```bash
+conda activate qcf_eq
+python 02_nor_to_markers.py --only-extracted --month YYYY-MM
+snuffler waveforms_toques/YYYY-MM/ --markers=markers/YYYY-MM_toques.markers
+```
+
+**Colour code is different from Pipeline A** — TOQUES has no ML confidence
+score, so colours come from the original analyst's Nordic pick *weight*
+(0–4) instead:
+
+| Colour | Nordic weight | Meaning |
+|--------|---------------|---------|
+| Green  | 0 or 1 (or blank) | Reliable pick |
+| Yellow | 2 or 3 | Use with caution |
+| Red    | 4 (or 9) | Do not use |
+
+Everything else — what a good P/S pick looks like, the decision tree, the
+"when in doubt, delete" rule, keyboard shortcuts, saving often — is exactly
+the same as Pipeline A above.
+
+Save your reviewed markers to `markers/YYYY-MM_toques_reviewed.markers`,
+then export with the `--toques` flag:
+
+```bash
+python 03_export.py --toques --markers markers/YYYY-MM_toques_reviewed.markers
+```
+
+This writes `toques_catalog_final.csv` / `.qml` / `toques_hypodd_phase.dat`
+/ `toques_tomodd_phase.dat` to `catalogs/`, instead of the plain
+`catalog_final.*` files Pipeline A writes — so running both pipelines
+never overwrites the other's output.
+
+**If `Events after filtering: 0` for every month you try:** that was a
+real bug (fixed 2026-10-19/20) where `--only-extracted` lost track of
+which waveform file belonged to which event once `--month` had already
+shrunk the event list. Pull the latest `main` and re-run — it was not
+caused by PhaseNet-vs-TOQUES waveform mismatch.
 
 ---
 
