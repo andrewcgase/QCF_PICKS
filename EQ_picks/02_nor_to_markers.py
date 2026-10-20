@@ -73,13 +73,25 @@ def main():
 
     config.MARKERS_DIR.mkdir(parents=True, exist_ok=True)
 
-    events_raw = nordic.read_nor_file(str(config.TOQUES_NOR))
-    print(f"Loaded {len(events_raw)} events from {config.TOQUES_NOR.name}")
+    events_all = nordic.read_nor_file(str(config.TOQUES_NOR))
+    print(f"Loaded {len(events_all)} events from {config.TOQUES_NOR.name}")
+
+    # Tag each event with its original 1-based catalog index *before* any
+    # filtering. That index is what 01_extract_toques.py baked into the
+    # waveform filenames (toq{idx:04d}.mseed, numbered across the full
+    # 574-event catalog, not per month). Re-enumerating from 1 after
+    # --month already shrank the list (the old bug here) silently produces
+    # local indices that only coincidentally match the real filenames for
+    # the catalog's first chronological chunk (Sep 2021) -- every other
+    # month comes up empty, which is exactly what Anne hit with
+    # `--only-extracted --month 2021-12` (real files toq0126-toq0169, but
+    # the re-enumerated local indices were 1-44).
+    events_raw = list(enumerate(events_all, start=1))  # [(idx, event), ...]
 
     # Filter by month
     if args.month:
         yr_s, mo_s = args.month.split("-")
-        events_raw = [e for e in events_raw
+        events_raw = [(i, e) for i, e in events_raw
                       if e["header"]["year"] == int(yr_s)
                       and e["header"]["month"] == int(mo_s)]
         if args.out is None:
@@ -96,9 +108,7 @@ def main():
                         extracted.add(int(p.stem.lstrip("toq")))
             for p in wdir.glob("toq*.mseed"):
                 extracted.add(int(p.stem.lstrip("toq")))
-        # events_raw is 0-indexed but file indices start at 1
-        events_raw = [e for i, e in enumerate(events_raw, start=1)
-                      if i in extracted]
+        events_raw = [(i, e) for i, e in events_raw if i in extracted]
 
     if args.max_events:
         events_raw = events_raw[:args.max_events]
@@ -107,7 +117,7 @@ def main():
 
     markers = []
 
-    for ev_idx, ev in enumerate(events_raw, start=1):
+    for ev_idx, ev in events_raw:
         h = ev["header"]
         try:
             dt = nordic.event_datetime(h)
