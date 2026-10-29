@@ -32,8 +32,14 @@ GaMMA catalog):
 ```bash
 conda activate qcf_eq
 python patch_pyrocko.py          # only needed once
+python make_stations_file.py     # only needed once (or after station lists change) --
+                                  # writes stations.pf, which 02_picks_to_markers.py/
+                                  # 02_nor_to_markers.py auto-detect and pass to Snuffler.
+                                  # Without it, Snuffler's "sort by distance" menu option
+                                  # silently does nothing -- it has no station coordinates
+                                  # to compute distance from.
 python 02_picks_to_markers.py --only-extracted --month YYYY-MM
-snuffler waveforms/YYYY-MM/ --markers=markers/YYYY-MM.markers
+snuffler waveforms/YYYY-MM/ --markers=markers/YYYY-MM.markers --stations=stations.pf
 ```
 
 Work **one month at a time** — it keeps Snuffler fast and lets you save
@@ -183,8 +189,31 @@ a different colour code.
 ```bash
 conda activate qcf_eq
 python 02_nor_to_markers.py --only-extracted --month YYYY-MM
-snuffler waveforms_toques/YYYY-MM/ --markers=markers/YYYY-MM_toques.markers
+snuffler waveforms_toques/YYYY-MM/ --markers=markers/YYYY-MM_toques.markers --stations=stations.pf
 ```
+
+(Same `stations.pf` from the Pipeline A setup above — one file covers every
+OBS + onshore station, nothing TOQUES-specific about it.)
+
+**Picking on Z/R/T instead of Z/1/2:** `rotate_to_zrt.py` rotates each
+event's window into radial/transverse using the event's preliminary
+location, before you pick. Onshore uses the standard back-azimuth rotation;
+OBS stations additionally correct for their real sensor orientation
+(OBS horizontals are NOT aligned to true north) using measured angles from
+OBSIC/WHOI — see `data/obs_orientation/README.md`. Run once per month before
+picking:
+
+```bash
+python rotate_to_zrt.py --month YYYY-MM
+snuffler waveforms_toques_zrt/YYYY-MM/ --markers=markers/YYYY-MM_toques.markers --stations=stations.pf
+```
+
+A P-wave should show up almost entirely on Z and R, with little on T; an
+S-wave shows on both R and T. A real arrival with large energy on T for a
+"pure" P could mean a timing/location problem or a station whose OBS
+orientation wasn't well constrained (see the error threshold note in
+`rotate_to_zrt.py`'s own docstring) — worth a second look rather than
+picking blind.
 
 **Colour code is different from Pipeline A** — TOQUES has no ML confidence
 score, so colours come from the original analyst's Nordic pick *weight*

@@ -193,11 +193,17 @@ def main():
     print(f"\nWrote {n_ev} event markers and {n_ph} phase markers to:")
     print(f"  {out_path}")
 
-    print(f"\nLaunch Snuffler:")
     waveform_path = (config.WAVEFORMS_DIR / args.month
                      if args.month else config.WAVEFORMS_DIR)
+    stations_path = Path(__file__).parent / "stations.pf"
+    stations_flag = f" --stations={stations_path}" if stations_path.exists() else ""
+    if not stations_flag:
+        print(f"\nNOTE: {stations_path} not found -- run make_stations_file.py first, "
+              f"or Snuffler's 'sort by distance' will silently do nothing (it needs "
+              f"station coordinates to compute distance).")
+    print(f"\nLaunch Snuffler:")
     print(f"  snuffler {waveform_path}/ "
-          f"--markers={out_path}")
+          f"--markers={out_path}{stations_flag}")
 
 
 if __name__ == "__main__":
