@@ -90,6 +90,7 @@ conda activate qcf_eq
 ## Known issues / patches
 
 - **Snuffler pick-click bug**: loaded phase markers are not selectable without `patch_pyrocko.py`. Run once after env creation.
+- **Snuffler "Sort by Names" is a no-op**: a real bug in the installed pyrocko (confirmed in 2025.12.04's `pile_viewer.py`) -- unlike Sort by Distance/Azimuth/Backazimuth, which look up a real per-trace key, "Sort by Names" is wired to `lambda tr: ()`, the same empty key for every trace, so it can never reorder anything. Also fixed by `patch_pyrocko.py` (same run-once step covers both). Sort by Distance/Azimuth still require an event marker to be active first (Snuffler only computes `dist_m`/`azimuth` relative to the active event origin) -- that's expected Snuffler behavior, not a bug.
 - Clock corrections applied only to QCB06 and QCB28; QCB10, QCB14, QCB20 are skipped entirely (bad clock/data).
 
 ## Seismic network
