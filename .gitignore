@@ -4,7 +4,6 @@ WA_picks/tables/*.csv
 WA_picks/tables/processed/
 WA_picks/tables/Interpolate/csv/
 WA_picks/onshore_tables/
-WA_picks/allshots_formatted.csv
 WA_picks/picks/
 
 # EQ_picks — catalog outputs (data, not code)
