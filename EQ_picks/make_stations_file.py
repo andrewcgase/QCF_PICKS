@@ -34,7 +34,7 @@ def main():
             stations.append(model.Station(
                 network=config.OBS_NETWORK, station=row["Station"], location="",
                 lat=float(row["Latitude"]), lon=float(row["Longitude"]),
-                elevation=-float(row["Depth (m)"]),  # Depth (m) is negative-down; elevation is positive-up
+                elevation=float(row["Depth (m)"]),  # already negative-down == positive-up convention
             ))
 
     if config.ONSHORE_XML.exists():

@@ -112,7 +112,6 @@ def rotate_stream(st, ev_lat, ev_lon, sta_lat, sta_lon, obs_orientation, max_ori
         r_data, t_data = rotate_ne_rt(n_tr.data.astype(float), e_tr.data.astype(float), back_azimuth)
         status = "onshore"
     elif "1" in by_comp and "2" in by_comp:
-        sta = n_tr = e_tr = None
         h1_tr, h2_tr = by_comp["1"], by_comp["2"]
         station = h1_tr.stats.station
         if station not in obs_orientation:
