@@ -31,6 +31,31 @@ from pathlib import Path
 
 PATCHES = [
     (
+        '"Sort by Distance/Azimuth" never sets origin (dist_m always None)',
+        (
+            "        def s_sortingmode_change(self, ignore=None):\n"
+            "            for menuitem, valfunc in self.menuitems_ssorting:\n"
+            "                if menuitem.isChecked():\n"
+            "                    self._ssort = valfunc\n"
+            "\n"
+            "            self.sortingmode_change()\n"
+        ),
+        (
+            "        def s_sortingmode_change(self, ignore=None):\n"
+            "            for menuitem, valfunc in self.menuitems_ssorting:\n"
+            "                if menuitem.isChecked():\n"
+            "                    self._ssort = valfunc\n"
+            "\n"
+            "            if self.get_active_event() is None:\n"
+            "                for marker in self.markers:\n"
+            "                    if isinstance(marker, EventMarker):\n"
+            "                        self.set_active_event_marker(marker)\n"
+            "                        break\n"
+            "\n"
+            "            self.sortingmode_change()\n"
+        ),
+    ),
+    (
         "marker click detection (wildcard-channel markers unselectable)",
         (
             "                    for nslc_id in marker_nslc_ids:\n"
