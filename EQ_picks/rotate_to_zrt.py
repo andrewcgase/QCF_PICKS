@@ -98,6 +98,18 @@ def h1h2_to_ne(h1, h2, theta_deg):
     return n, e
 
 
+def _align_pair(tr1, tr2):
+    """Trim two traces to their common time window and truncate to equal length.
+    Handles off-by-one sample mismatches that arise after merging/slicing."""
+    t0 = max(tr1.stats.starttime, tr2.stats.starttime)
+    t1 = min(tr1.stats.endtime,   tr2.stats.endtime)
+    tr1, tr2 = tr1.slice(t0, t1), tr2.slice(t0, t1)
+    n = min(len(tr1.data), len(tr2.data))
+    tr1.data, tr2.data = tr1.data[:n], tr2.data[:n]
+    tr1.stats.npts = tr2.stats.npts = n
+    return tr1, tr2
+
+
 def rotate_stream(st, ev_lat, ev_lon, sta_lat, sta_lon, obs_orientation, max_orient_err):
     """Rotate one event's stream (all channels for one station) to Z/R/T in
     place where possible. Returns (rotated_stream, status) where status is
@@ -108,12 +120,11 @@ def rotate_stream(st, ev_lat, ev_lon, sta_lat, sta_lon, obs_orientation, max_ori
     others = [tr for tr in st if tr.stats.channel[-1] not in ("1", "2", "N", "E")]
 
     if "N" in by_comp and "E" in by_comp:
-        n_tr, e_tr = by_comp["N"], by_comp["E"]
+        n_tr, e_tr = _align_pair(by_comp["N"], by_comp["E"])
         r_data, t_data = rotate_ne_rt(n_tr.data.astype(float), e_tr.data.astype(float), back_azimuth)
         status = "onshore"
     elif "1" in by_comp and "2" in by_comp:
-        sta = n_tr = e_tr = None
-        h1_tr, h2_tr = by_comp["1"], by_comp["2"]
+        h1_tr, h2_tr = _align_pair(by_comp["1"], by_comp["2"])
         station = h1_tr.stats.station
         if station not in obs_orientation:
             return st, "skipped:no orientation measured"
